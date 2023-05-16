@@ -1,0 +1,12 @@
+[flake8]
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+max-line-length = 79
+show-source = True
+statistics = True
+count = True
+verbose = 1
+ignore = E203, W503

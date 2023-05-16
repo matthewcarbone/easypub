@@ -1,0 +1,62 @@
+[project]
+name = "easypub"
+authors = [
+    {"name" = "Matthew R. Carbone", "email" = "mcarbone@bnl.gov"},
+    {"name" = "Paul J. Robinson", "email" = ""},
+]
+maintainers = [
+    {"name" = "Matthew R. Carbone", "email" = "mcarbone@bnl.gov"},
+    {"name" = "Paul J. Robinson", "email" = ""},
+]
+description = "Easy Publication Parser"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {"file" = "LICENSE"}
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    "feedparser",
+]
+
+[project.optional-dependencies]
+test = [
+    "codecov",
+    "coverage",
+    "flake8",
+    "pytest",
+    "pytest-cov",
+    "black",
+    "nbstripout",
+    "pre-commit",
+]
+
+# [project.scripts]
+# cr = "doi_pub_parse.entrypoint:entrypoint"
+
+[tool.black]
+line-length = 79
+include = '\.pyi?$'
+exclude = '''
+/(
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | docs/source/conf.py
+)/
+'''
+
