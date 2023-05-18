@@ -36,18 +36,20 @@ API calls:
 Paul J. Robinson, Columbia University, July 2022
 """
 
+from abc import ABC, abstractproperty
 import requests
-import feedparser
 import json
-
-import numpy as np
 from itertools import groupby
 from datetime import date
+from functools import cached_property
+
+import feedparser
+from monty.json import MSONable
+
 
 try:
     from tqdm import tqdm
 except ImportError:
-
     def tqdm(iterable):
         return iterable
 
@@ -64,20 +66,178 @@ output_file = "../source/publications"
 """
 IMPORTANT Global Variables: Do not change unless API calls change
 """
-cr_api_base = "https://api.crossref.org/works/"
-cr_api_app = "/transform/application/vnd.citationstyles.csl+json"
 
-chemRXiv_api_base = "http://chemrxiv.org/engage/chemrxiv/public-api/v1/items/doi/"
-arXiv_api_base = "http://export.arxiv.org/api/query?id_list="
+CROSSREF_API_BASE = "https://api.crossref.org/works/"
+CROSSREF_API_APP = "/transform/application/vnd.citationstyles.csl+json"
+
+CHEMRXIV_API_BASE = "http://chemrxiv.org/engage/chemrxiv/public-api/v1/items/doi/"
+ARXIV_API_BASE = "http://export.arxiv.org/api/query?id_list="
 
 """
 Code
 """
 
 
+def read_text_file(filename):
+    """Reads a text file in which each line is expected to contain a single
+    entry.
+    
+    Parameters
+    ----------
+    filename : os.PathLike
+    
+    Returns
+    -------
+    list
+        A list [of str] of the entries in the file.
+    """
+
+    with open(filename, "r") as f:
+        lines = f.readlines()
+    return [line.strip() for line in lines]
+
+
+def get_CrossRef(doi):
+    """Uses the CrossRef API to extract article metadata
+    
+    Parameters
+    ----------
+    doi : str
+        The DOI of the manuscript.
+    
+    Returns
+    -------
+    dict
+    
+    Raises
+    ------
+    RuntimeError
+        If the API request returns error code 404.
+    """
+
+    req_url = CROSSREF_API_BASE + doi + CROSSREF_API_APP
+
+    req_json = requests.get(req_url)
+
+    if req_json.status_code == 404:
+        raise RuntimeError(f"Crossref returned error code 404 on doi {doi}")
+
+    return req_json.json()
+
+
+class Publication(ABC):
+    format_options = [
+        "authors", "title", "journal", "volume", "number", "year",
+    ]
+
+    @property
+    def doi(self):
+        return self._doi
+
+    @property
+    def metadata(self):
+        return self._metadata
+
+    @abstractproperty
+    def authors(self):
+        ...
+
+    @abstractproperty
+    def title(self):
+        ...
+
+    @abstractproperty
+    def journal(self):
+        ...
+
+    @abstractproperty
+    def volume(self):
+        ...
+
+    @abstractproperty
+    def number(self):
+        ...
+
+    @abstractproperty
+    def year(self):
+        ...
+
+    def format(self, fmt):
+        for option in self.format_options:
+            fmt = fmt.replace("${%s}" % option, getattr(self, option))
+        return fmt
+
+
+class CrossRefPublication(Publication, MSONable):
+
+    def __init__(self, doi, metadata=None):
+        self._doi = doi
+        if metadata is None:
+            self._metadata = get_CrossRef(self.doi)
+
+    @property
+    def authors_list(self):
+        authors = self.metadata["author"]
+        return [f"{xx['given']} {xx['family']}" for xx in authors]
+
+    # String properties
+
+    @property
+    def authors(self):
+        a = self.authors_list
+        if len(a) == 1:
+            return a[0]
+        s = ", ".join(a[:-1])
+        return f"{s} & {a[-1]}"
+
+    @property
+    def title(self):
+        return self.metadata["title"]
+
+    @property
+    def journal(self):
+        return self.metadata["container-title"]
+
+    @property
+    def volume(self):
+        return self.metadata["volume"]
+
+    @property
+    def number(self):
+        page = self.metadata.get("page", None)
+        article_no = self.metadata.get("article-number", None)
+        if page is not None and article_no is not None:
+            return article_no
+        if page is None and article_no is None:
+            raise RuntimeError("page and article_no are both None")
+        return page if page is not None else article_no
+    
+    @property
+    def year(self):
+        return str(self.metadata["published"]["date-parts"][0][0])
+
+    def __str__(self):
+        return f"{self.authors}. {self.title}. {self.journal} {self.volume}, {self.number} ({self.year})"
+
+
+class ArXivPublication(Publication):
+    ...
+
+
+class ChemArxivPublication(Publication):
+    ...
+
+
 def main():
-    list_of_DOI = np.genfromtxt(doi_file, dtype=str)
-    list_of_preprint = np.genfromtxt(arXiv_file, dtype=str)
+
+    fmt = "${authors}. ${title}. ${journal} ${volume}, ${number} (${year})"
+
+    list_of_DOI = read_text_file("test.txt")
+    pub = CrossRefPublication(list_of_DOI[0])
+    print(pub.format(fmt))
+    return
+
+    list_of_preprint = read_text_file(arXiv_file, dtype=str)
     error_doi = []
     error_doi_preprint = []
     published_doi_preprint = []
@@ -216,9 +376,11 @@ def published_api_calls(doi):
     json_return = None
     try:
         json_return = get_manual_json(doi)
+
+    # Why do you try manual json first before using crossREf?
     except ImportError:
         try:
-            json_return = get_crossRef(doi)
+            json_return = get_CrossRef(doi)
         except ImportError:
             json_return = preprint_api_calls(doi)
     return json_return
@@ -257,7 +419,7 @@ def get_chemRXiv(doi):
 
     returns: json object
     """
-    req_url = chemRXiv_api_base + doi
+    req_url = CHEMRXIV_API_BASE + doi
 
     req_json = requests.get(req_url)
 
@@ -284,7 +446,7 @@ def get_arXiv(prefix):
     prefix_full = prefix
     if ":" in prefix:
         prefix = prefix.split(":")[1]
-    req_url = arXiv_api_base + prefix
+    req_url = ARXIV_API_BASE + prefix
     req_xml = requests.get(req_url)
     if req_xml.status_code == 404:
         raise ImportError
@@ -330,25 +492,6 @@ def get_arXiv(prefix):
     }
 
     return dict_return
-
-
-def get_crossRef(doi):
-    """
-    Uses the CrossRef API to extract article metaData
-    param: doi (str)
-
-    return: json object
-    """
-    req_url = cr_api_base + doi + cr_api_app
-
-    req_json = requests.get(req_url)
-
-    if req_json.status_code == 404:
-        raise ImportError
-
-    json_i = req_json.json()
-
-    return json_i
 
 
 def get_manual_json(doi):
